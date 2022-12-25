@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8"/>
+
+	<script type="application/javascript">  //GLOBALS
+		const MAX_DEPTH = 2;
+	</script>
+	
+	<script type="application/javascript"> function create_file_link(filepath, filename) 
+			{
+			//Creates a title wrapping a link to the subchapter
+			var link = document.createElement("a");
+			
+			link.classList.add("file");
+			
+			link.setAttribute("href", "?path=" + encodeURIComponent(filepath) + "&file=" + encodeURIComponent(filename));
+			
+			link.innerHTML = filename;
+			
+			return link;
+			}
+	</script>
+	
+	<script type="application/javascript"> function request_append(include, depth) 
+			{
+			var filename = include.innerHTML.trim();
+			console.dir(filename);
+			var filepath = include.getAttribute("path");
+			
+			return new Promise((resolve, reject) => 
+				{
+				//Replace the include tag with a div
+				var new_element = document.createElement("div");
+				include.parentNode.replaceChild(new_element, include);
+				
+				//Build the uri of the actual file
+				var filepathname;
+				if(filepath) { filepathname = filepath + "/" + filename; }
+				else { filepathname = filename; }
+				
+				var uri = filepathname + ".html"
+				
+				fetch(uri)
+				.then(response => response.text())
+				.then(text => 
+					{
+					//Set div properties
+					new_element.setAttribute("file", filename);
+					new_element.setAttribute("path", filepath);
+					
+					//Append file name as main title
+					var title_to_file = document.createElement("h" + depth);
+					title_to_file.appendChild(create_file_link(filepath, filename));
+					
+					new_element.appendChild(title_to_file);
+					
+					new_element.innerHTML += "\n" + text;
+					
+					//Get all the includes that were inside that path
+					var includes = new_element.querySelectorAll("include");
+					
+					//Add the path to the inner includes, so it is available for the next "request_append" iterations.
+					includes.forEach((include) =>
+						{
+						include.setAttribute("path", filepathname);
+						});
+						
+					//If we are at max depth, further subchapters become links.
+					
+					if(depth > MAX_DEPTH)
+						{
+						includes.forEach((include) =>
+							{
+							var incl_path = filepathname;
+							var incl_file = include.innerHTML;
+							var deep_file = document.createElement("div");
+							deep_file.classList.add("deep_file");
+							deep_file.appendChild(create_file_link(incl_path, incl_file));
+							deep_file.innerHTML += "... (Click on a deeper section to expand)";
+							
+							new_element.replaceChild(deep_file, include);
+							});
+						}
+					
+					resolve(true);
+					})
+				.catch((error) =>
+					{
+					console.dir(error);
+					new_element.innerHTML = "File " + uri + " not found.";
+					resolve(false);
+					});
+				});
+			};
+	</script>
+	
+	<script type="application/javascript"> function includeHTML(depth) 
+			{
+			//Get all elements with property "include"
+			var includes = document.querySelectorAll("include");
+			
+			var promises = [];
+			
+			includes.forEach((include) =>
+				{
+				//If a string is associated, call request_append
+				promises.push(request_append(include, depth));
+				});
+			
+			//After all request_append concluded, if at least one has included a new file, 
+			//proceed with a recursive call to includeHTML with one more depth
+			return new Promise(function(resolve, reject)
+				{
+				Promise.all(promises).then((values) =>
+					{
+					var included = false;
+					for(var i = 0; i < values.length; i++) { if(values[i]) { included = true; } }
+					
+					if(included && depth <= MAX_DEPTH)
+						{
+						includeHTML(depth + 1)
+						.then(() => { resolve(""); });
+						}
+					else { resolve(""); }
+					});
+				});
+			}
+	</script>
+	
+	
+	<script type="application/javascript"> function first_include()
+			{
+			//Get url parameters
+			const queryString = window.location.search;
+			const urlParams = new URLSearchParams(queryString);
+			
+			//TODO check if params exist
+			const filepath = urlParams.get("path");
+			const filename = urlParams.get("file");
+			
+			//Set back button
+			var split = filepath.split("/");
+			var back_filepath = split[0];
+			var back_filename = split[split.length - 1];
+			for(var i=1; i < split.length - 1; i++)
+				{
+				back_filepath += "/" + split[i];
+				}
+			
+			var back_link = create_file_link(back_filepath, back_filename);
+			var nav_back = document.querySelectorAll(".nav_back")[0];
+			nav_back.appendChild(back_link);
+			
+			
+			
+			//Create body
+			const include = document.querySelectorAll("include")[0];
+			include.setAttribute("path", filepath);
+			include.innerHTML = filename;
+			}
+	</script>
+	
+	<script type="application/javascript"> function update_drop_cap()
+			{
+			if(getComputedStyle(document.documentElement).getPropertyValue('--enable_drop_cap') == "true")
+				{
+				function get_line_height(element)
+					{
+					var tmp = document.createElement(element.nodeName);
+					tmp.innerHTML = "A";
+					element.parentNode.appendChild(tmp);
+					var ret = tmp.clientHeight;
+					tmp.parentNode.removeChild(tmp);
+					return ret;
+					};
+				function get_lines_count(element)
+					{
+					var line_height = get_line_height(element);
+					var height = element.offsetHeight;
+					return Math.floor(height / line_height);
+					};
+				
+				
+				var paragraphs = document.querySelectorAll("p");
+				paragraphs.forEach((paragraph) =>
+					{
+					var lines = get_lines_count(paragraph);
+					if(lines >= 3) { paragraph.classList.add("drop_cap"); }
+					else { paragraph.classList.remove("drop_cap"); }
+					});
+				}
+			}
+		
+		window.addEventListener("resize", update_drop_cap, false);
+	</script>
+	
+	<link rel="stylesheet" href="Style.css">
+</head>
+
+<body>
+	<div style="position: fixed" class="nav_back"></div>
+	<include></include>
+</body>
+
+<script>
+	first_include();
+	includeHTML(1)
+	.then(() => { update_drop_cap(); } );
+</script>
+</html>
